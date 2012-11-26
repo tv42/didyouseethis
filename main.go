@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"fmt"
-	"github.com/hoisie/twitterstream"
 	"log"
 	"github.com/alloy-d/goauth"
 	"launchpad.net/goyaml"
@@ -11,6 +10,9 @@ import (
 	"io/ioutil"
 	"errors"
 	"strings"
+	"encoding/json"
+	"io"
+	"mime"
 )
 
 type Config struct {
@@ -60,11 +62,9 @@ func readConfig(path string) (*Config, error) {
 }
 
 // Merge multiple simple search strings into a comma-separated one.
-func merge_keywords(keywords []string) []string {
+func merge_keywords(keywords []string) string {
 	// TODO is there a max len?
-	return []string{
-		strings.Join(keywords, ","),
-	}
+	return strings.Join(keywords, ",")
 }
 
 func main() {
@@ -84,10 +84,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s: cannot read config: %s\n", os.Args[0], err)
 		os.Exit(1)
 	}
-
-	stream := make(chan *twitterstream.Tweet)
-	// TODO use oauth for streaming too, only if twitter supported it
-	client := twitterstream.NewClient(config.User, config.Password)
 
 	o := new(oauth.OAuth)
 	o.ConsumerKey = config.OAuth.Key
@@ -135,29 +131,72 @@ func main() {
 	}
 
 	track := merge_keywords(config.Keywords)
-	err = client.Track(track, stream)
+	url := "https://stream.twitter.com/1.1/statuses/filter.json"
+	response, err := o.Post(
+		url,
+		map[string]string{
+			"track": track,
+		})
 	if err != nil {
-		log.Fatalf("twitter stream track failed: %s", err)
+		log.Fatalf("can't stream: %s", err)
 	}
-	for {
-		tw := <-stream
-		fmt.Printf("%s: %s\n", tw.User.Screen_name, tw.Text)
+	if response.StatusCode != 200 {
+		log.Fatalf("can't stream: %s", response.Status)
+	}
 
-		url := fmt.Sprintf(
-			"https://api.twitter.com/1/statuses/retweet/%d.json",
-			tw.Id,
-		)
-		response, err := o.Post(
-			url,
-			map[string]string{
-				"trim_user": "true",
-			})
-		if err != nil {
-			log.Fatalf("can't retweet: %s", err)
+	ctype := response.Header.Get("content-type")
+	mediatype, _, err := mime.ParseMediaType(ctype)
+	if err != nil {
+		log.Fatalf("stream content-type is broken: %q", ctype)
+	}
+	if mediatype != "application/json" {
+		log.Fatalf("stream is not json: %q", ctype)
+	}
+
+	fmt.Printf("Starting to stream...\n")
+	dec := json.NewDecoder(response.Body)
+	for {
+		var msg map[string]interface{}
+		err := dec.Decode(&msg)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			log.Fatalf("error decoding json: %s\n", err)
+			break
 		}
-		if response.StatusCode != 200 {
-			log.Fatalf("can't retweet: %s", response.Status)
+
+		//TODO handle limit
+		//TODO handle status_withheld
+		//TODO handle user_withheld
+		//TODO handle disconnect
+
+		text, ok := msg["text"]
+		if ok {
+			fmt.Printf("got tweet: %q\n", text)
+
+			id, ok := msg["id_str"]
+			if !ok {
+				panic(fmt.Sprintf("TODO no id: %v", msg))
+			}
+
+			url := fmt.Sprintf(
+				"https://api.twitter.com/1.1/statuses/retweet/%s.json",
+				id,
+			)
+			response, err := o.Post(
+				url,
+				map[string]string{
+					"trim_user": "true",
+				})
+			if err != nil {
+				log.Fatalf("can't retweet: %s", err)
+			}
+			if response.StatusCode != 200 {
+				log.Fatalf("can't retweet: %s", response.Status)
+			}
+			fmt.Printf("Retweeted! %+v", response)
 		}
-		fmt.Printf("Retweeted! %+v", response)
+
+		fmt.Printf("Unhandled message type: %q\n", msg)
 	}
 }
