@@ -165,14 +165,14 @@ func main() {
 			break
 		}
 
+		switch {
 		//TODO handle limit
 		//TODO handle status_withheld
 		//TODO handle user_withheld
 		//TODO handle disconnect
 
-		text, ok := msg["text"]
-		if ok {
-			fmt.Printf("got tweet: %q\n", text)
+		case msg["text"] != nil:
+			fmt.Printf("got tweet: %q\n", msg["text"])
 
 			id, ok := msg["id_str"]
 			if !ok {
@@ -195,8 +195,9 @@ func main() {
 				log.Fatalf("can't retweet: %s", response.Status)
 			}
 			fmt.Printf("Retweeted! %+v", response)
-		}
 
-		fmt.Printf("Unhandled message type: %q\n", msg)
+		default:
+			fmt.Printf("Unhandled message type: %q\n", msg)
+		}
 	}
 }
