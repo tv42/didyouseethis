@@ -1,64 +1,22 @@
 package main
 
 import (
-	"os"
-	"fmt"
-	"log"
-	"github.com/alloy-d/goauth"
-	"launchpad.net/goyaml"
-	"flag"
-	"io/ioutil"
-	"errors"
-	"strings"
 	"encoding/json"
+	"flag"
+	"fmt"
+	"github.com/alloy-d/goauth"
+	"github.com/tv42/didyouseethis"
 	"io"
+	"log"
 	"mime"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
-type Config struct {
-	User string
-	Password string
-	OAuth struct {
-		Key string
-		Secret string
-	}
-	Keywords []string
-}
-
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s CONFIG.YAML OAUTH_STATE_FILE\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s CONFIG.YAML OAUTH_STATE_FILE DIR\n", os.Args[0])
 	flag.PrintDefaults()
-}
-
-func readConfig(path string) (*Config, error) {
-	buf, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var config Config
-	err = goyaml.Unmarshal(buf, &config)
-	if err != nil {
-		return nil, err
-	}
-
-	// validate that required fields were set
-	if config.User == "" {
-		return nil, errors.New("missing field: user")
-	}
-	if config.Password == "" {
-		return nil, errors.New("missing field: password")
-	}
-	if config.OAuth.Key == "" {
-		return nil, errors.New("missing field: oauth key")
-	}
-	if config.OAuth.Secret == "" {
-		return nil, errors.New("missing field: oauth secret")
-	}
-	if len(config.Keywords) == 0 {
-		return nil, errors.New("missing field: keywords")
-	}
-
-	return &config, nil
 }
 
 // Merge multiple simple search strings into a comma-separated one.
@@ -67,22 +25,43 @@ func merge_keywords(keywords []string) string {
 	return strings.Join(keywords, ",")
 }
 
+func maybeMkdir(path string) error {
+	err := os.Mkdir(path, 0755)
+	if os.IsExist(err) {
+		err = nil
+	}
+	return nil
+}
+
 func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	if len(flag.Args()) != 2 {
+	if len(flag.Args()) != 3 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	config_path := flag.Args()[0]
 	oauth_path := flag.Args()[1]
+	state_dir := flag.Args()[2]
 
-	config, err := readConfig(config_path)
+	config, err := didyouseethis.ReadConfig(config_path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: cannot read config: %s\n", os.Args[0], err)
 		os.Exit(1)
+	}
+
+	archive_dir := filepath.Join(state_dir, "archive")
+	err = maybeMkdir(archive_dir)
+	if err != nil {
+		log.Fatalf("cannot mkdir: %s", err)
+	}
+
+	retweet_dir := filepath.Join(state_dir, "retweet")
+	err = maybeMkdir(retweet_dir)
+	if err != nil {
+		log.Fatalf("cannot mkdir: %s", err)
 	}
 
 	o := new(oauth.OAuth)
@@ -174,27 +153,15 @@ func main() {
 		case msg["text"] != nil:
 			fmt.Printf("got tweet: %q\n", msg["text"])
 
-			id, ok := msg["id_str"]
+			_, ok := msg["id_str"]
 			if !ok {
 				panic(fmt.Sprintf("TODO no id: %v", msg))
 			}
 
-			url := fmt.Sprintf(
-				"https://api.twitter.com/1.1/statuses/retweet/%s.json",
-				id,
-			)
-			response, err := o.Post(
-				url,
-				map[string]string{
-					"trim_user": "true",
-				})
+			_, err := SaveTweet(archive_dir, retweet_dir, msg)
 			if err != nil {
-				log.Fatalf("can't retweet: %s", err)
+				log.Fatalf("can't save tweet: %s", err)
 			}
-			if response.StatusCode != 200 {
-				log.Fatalf("can't retweet: %s", response.Status)
-			}
-			fmt.Printf("Retweeted! %+v", response)
 
 		default:
 			fmt.Printf("Unhandled message type: %q\n", msg)
