@@ -16,7 +16,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s CONFIG.YAML OAUTH_STATE_FILE DIR\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s CONFIG.YAML DIR\n", os.Args[0])
 	flag.PrintDefaults()
 }
 
@@ -32,20 +32,21 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	if len(flag.Args()) != 3 {
+	if len(flag.Args()) != 2 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	config_path := flag.Args()[0]
-	oauth_path := flag.Args()[1]
-	state_dir := flag.Args()[2]
+	state_dir := flag.Args()[1]
 
 	config, err := didyouseethis.ReadConfig(config_path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: cannot read config: %s\n", os.Args[0], err)
 		os.Exit(1)
 	}
+
+	oauth_path := filepath.Join(state_dir, ".oauth")
 
 	retweet_dir := filepath.Join(state_dir, "retweet")
 	err = maybeMkdir(retweet_dir)
