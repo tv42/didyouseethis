@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,12 @@ func IdFromTweet(tweet map[string]interface{}) (id uint64, err error) {
 		return
 	}
 	return
+}
+
+func IsRetweet(tweet map[string]interface{}) bool {
+	// we assume that if it's there, it's not empty, and vice versa
+	_, ok := tweet["retweeted_status"]
+	return ok
 }
 
 func SaveTweet(archive_dir string, retweet_dir string, tweet map[string]interface{}) (id uint64, err error) {
@@ -61,14 +68,24 @@ func SaveTweet(archive_dir string, retweet_dir string, tweet map[string]interfac
 		return
 	}
 
-	// mark it to be retweeted first (at-least-once semantics)
-	err = os.Link(tmp, retweet_path)
-	// having an unprocessed to-retweet entry from an earlier run
-	// (that failed to archive it) is ok; it should have the same
-	// content
-	if err != nil && !os.IsExist(err) {
-		_ = os.Remove(tmp)
-		return
+	if IsRetweet(tweet) {
+		// don't even try retweeting retweets. twitter refuses
+		// to do that, and while we could extract the original
+		// and try to retweet that, doing that more than once
+		// means we get hard-to-categorize errors and end up
+		// leaving too many <id>.json.fail files around.
+		// hopefully we'll see the original in the stream.
+		log.Printf("not retweeting a retweet: %d", id)
+	} else {
+		// mark it to be retweeted first (at-least-once semantics)
+		err = os.Link(tmp, retweet_path)
+		// having an unprocessed to-retweet entry from an earlier run
+		// (that failed to archive it) is ok; it should have the same
+		// content
+		if err != nil && !myIsExist(err) {
+			_ = os.Remove(tmp)
+			return
+		}
 	}
 
 	err = os.Rename(tmp, archive_path)
