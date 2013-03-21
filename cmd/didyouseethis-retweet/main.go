@@ -1,9 +1,10 @@
 package main
 
 import (
+	"code.google.com/p/go.exp/inotify"
 	"flag"
 	"fmt"
-	"github.com/cznic/sortutil"
+	"github.com/alloy-d/goauth"
 	"github.com/tv42/didyouseethis"
 	"io"
 	"log"
@@ -11,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"time"
 )
 
 func usage() {
@@ -25,6 +25,82 @@ func maybeMkdir(path string) error {
 		err = nil
 	}
 	return nil
+}
+
+func isWork(name string) (order uint64, ok bool) {
+	ext := filepath.Ext(name)
+	if ext != ".json" {
+		return 0, false
+	}
+	order_str := name[:len(name)-len(ext)]
+
+	// decode the number to be able to sort
+	order, err := strconv.ParseUint(order_str, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return order, true
+}
+
+func retweet_file(id uint64, name string, o *oauth.OAuth, retweet_dir string) {
+	err := Retweet(id, o)
+	if err != nil {
+		log.Fatalf("can't retweet: %s", err)
+	}
+	fmt.Printf("Retweeted: %d\n", id)
+	err = os.Remove(filepath.Join(retweet_dir, name))
+	if err != nil {
+		log.Fatalf("can't remove retweet file: %s", err)
+	}
+}
+
+type workItem struct {
+	id   uint64
+	name string
+}
+
+type work []workItem
+
+func (s work) Len() int           { return len(s) }
+func (s work) Less(i, j int) bool { return s[i].id < s[j].id }
+func (s work) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+func retweet_old(dir *os.File, o *oauth.OAuth, retweet_dir string) {
+	// consume what's there
+	for {
+		var pending work
+
+		for {
+			names, err := dir.Readdirnames(1000)
+			if err != nil && err != io.EOF {
+				log.Fatalf("cannot read work dir: %v", err)
+			}
+
+			if len(names) == 0 {
+				break
+			}
+
+			for _, name := range names {
+				// all we need for retweeting is the id, so don't bother decoding the json
+				id, ok := isWork(name)
+				if !ok {
+					continue
+				}
+				pending = append(pending, workItem{id, name})
+			}
+		}
+
+		if len(pending) == 0 {
+			// we've emptied our work queue
+			break
+		}
+
+		sort.Sort(pending)
+
+		for _, item := range pending {
+			retweet_file(item.id, item.name, o, retweet_dir)
+		}
+	}
 }
 
 func main() {
@@ -62,58 +138,38 @@ func main() {
 	}
 	defer dir.Close()
 
+	watch, err := inotify.NewWatcher()
+	if err != nil {
+		log.Fatalf("cannot use inotify: %v", err)
+	}
+	defer watch.Close()
+
+	// start watching for file additions
+	err = watch.AddWatch(retweet_dir, inotify.IN_CREATE)
+	if err != nil {
+		log.Fatalf("cannot watch state dir: %v", err)
+	}
+
 	fmt.Printf("Starting to retweet...\n")
+
 	for {
-		var ids sortutil.Uint64Slice
-
-		for {
-			names, err := dir.Readdirnames(1000)
-			if err != nil && err != io.EOF {
-				log.Fatalf("cannot read state dir: %v", err)
-			}
-
-			if len(names) == 0 {
-				break
-			}
-
-			for _, name := range names {
-				// all we need for retweeting is the id, so don't bother decoding the json
-				ext := filepath.Ext(name)
-				if ext != ".json" {
+		retweet_old(dir, o, retweet_dir)
+		select {
+		case err = <-watch.Error:
+			log.Fatalf("error in watching: %v", err)
+		case ev := <-watch.Event:
+			switch {
+			case ev.Mask&inotify.IN_Q_OVERFLOW != 0:
+				// queue overflow, go back to readdir until empty
+				continue
+			case ev.Mask&inotify.IN_CREATE != 0:
+				// inotify gives us full paths
+				name := filepath.Base(ev.Name)
+				id, ok := isWork(name)
+				if !ok {
 					continue
 				}
-				id_str := name[:len(name)-len(ext)]
-
-				// decode the number to be able to sort
-				id, err := strconv.ParseUint(id_str, 10, 64)
-				if err != nil {
-					continue
-				}
-
-				ids = append(ids, id)
-			}
-		}
-
-		if len(ids) == 0 {
-			// nothing to do
-			// TODO use inotify
-			fmt.Printf("Sleeping...\n")
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		sort.Sort(ids)
-
-		for _, id := range ids {
-			err := Retweet(id, o)
-			if err != nil {
-				log.Fatalf("can't retweet: %s", err)
-			}
-			id_str := strconv.FormatUint(id, 10)
-			fmt.Printf("Retweeted: %s\n", id_str)
-			err = os.Remove(filepath.Join(retweet_dir, id_str+".json"))
-			if err != nil {
-				log.Fatalf("can't remove retweet file: %s", err)
+				retweet_file(id, name, o, retweet_dir)
 			}
 		}
 	}
