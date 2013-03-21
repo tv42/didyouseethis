@@ -45,6 +45,15 @@ func isWork(name string) (order uint64, ok bool) {
 func retweet_file(id uint64, name string, o *oauth.OAuth, retweet_dir string) {
 	err := Retweet(id, o)
 	if err != nil {
+		if ErrIsPermanent(err) {
+			// this is not a temporary error, so stop trying
+			log.Printf("twitter refused retweet: %d: %v", id, err)
+			err = os.Rename(filepath.Join(retweet_dir, name), filepath.Join(retweet_dir, name+".fail"))
+			if err != nil {
+				log.Fatalf("can't move failing tweet aside: %s", err)
+			}
+			return
+		}
 		log.Fatalf("can't retweet: %s", err)
 	}
 	fmt.Printf("Retweeted: %d\n", id)

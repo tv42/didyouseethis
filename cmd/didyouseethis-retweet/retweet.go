@@ -4,12 +4,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/alloy-d/goauth"
-	"log"
 )
 
 type twitterError struct {
 	// https://code.google.com/p/twitter-api/issues/detail?id=1333
 	Errors string
+}
+
+type TwitterError struct {
+	StatusCode int
+	Status     string
+	Message    string
+}
+
+func (e TwitterError) Error() string {
+	s := fmt.Sprintf("twitter error: %s", e.Status)
+	if e.Message != "" {
+		s = fmt.Sprintf("%s: %s", s, e.Message)
+	}
+	return s
+}
+
+func ErrIsPermanent(err error) bool {
+	err2, ok := err.(TwitterError)
+	if !ok {
+		return false
+	}
+	return err2.StatusCode == 403 &&
+		err2.Message == "sharing is not permissible for this status (Share validations failed)"
 }
 
 func Retweet(id uint64, o *oauth.OAuth) error {
@@ -31,12 +53,11 @@ func Retweet(id uint64, o *oauth.OAuth) error {
 			dec := json.NewDecoder(response.Body)
 			_ = dec.Decode(&extra)
 		}
-		if response.StatusCode == 403 && extra.Errors == "sharing is not permissible for this status (Share validations failed)" {
-			// this is not a temporary error, so stop trying
-			log.Printf("twitter refused retweet: %d", id)
-			return nil
+		return TwitterError{
+			StatusCode: response.StatusCode,
+			Status:     response.Status,
+			Message:    extra.Errors,
 		}
-		return fmt.Errorf("twitter error: %s: %q", response.Status, extra.Errors)
 	}
 	return nil
 }
