@@ -1,16 +1,19 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/tv42/didyouseethis"
-	"io"
+	"github.com/tv42/didyouseethis/watchdog"
 	"log"
 	"mime"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func usage() {
@@ -91,38 +94,69 @@ func main() {
 	}
 
 	fmt.Printf("Starting to stream...\n")
-	dec := json.NewDecoder(response.Body)
-	for {
-		var msg map[string]interface{}
-		err := dec.Decode(&msg)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			log.Fatalf("error decoding json: %s\n", err)
-			break
-		}
+	body := bufio.NewReader(response.Body)
 
-		switch {
-		//TODO handle limit
-		//TODO handle status_withheld
-		//TODO handle user_withheld
-		//TODO handle disconnect
-
-		case msg["text"] != nil:
-			fmt.Printf("got tweet: %q\n", msg["text"])
-
-			_, ok := msg["id_str"]
-			if !ok {
-				panic(fmt.Sprintf("TODO no id: %v", msg))
-			}
-
-			_, err := SaveTweet(archive_dir, retweet_dir, msg)
+	dog := watchdog.New(90 * time.Second)
+	lines := make(chan []byte)
+	readError := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		defer close(readError)
+		for {
+			line, err := body.ReadBytes('\n')
 			if err != nil {
-				log.Fatalf("can't save tweet: %s", err)
+				readError <- err
+				break
+			}
+			lines <- line
+		}
+	}()
+
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				err = <-readError
+				log.Fatalf("error reading stream: %s\n", err)
 			}
 
-		default:
-			fmt.Printf("Unhandled message type: %q\n", msg)
+			dog.Pet()
+
+			if bytes.Equal(line, []byte{'\r', '\n'}) {
+				continue
+			}
+
+			var msg map[string]interface{}
+			err = json.Unmarshal(line, &msg)
+			if err != nil {
+				log.Fatalf("bad json from stream: %v", err)
+			}
+
+			switch {
+			//TODO handle limit
+			//TODO handle status_withheld
+			//TODO handle user_withheld
+			//TODO handle disconnect
+
+			case msg["text"] != nil:
+				fmt.Printf("got tweet: %q\n", msg["text"])
+
+				_, ok := msg["id_str"]
+				if !ok {
+					panic(fmt.Sprintf("TODO no id: %v", msg))
+				}
+
+				_, err := SaveTweet(archive_dir, retweet_dir, msg)
+				if err != nil {
+					log.Fatalf("can't save tweet: %s", err)
+				}
+
+			default:
+				fmt.Printf("Unhandled message type: %q\n", msg)
+			}
+
+		case <-dog.Bark:
+			log.Fatalf("stream timeout")
 		}
 	}
 }
