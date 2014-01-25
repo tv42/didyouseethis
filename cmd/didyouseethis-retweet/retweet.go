@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/alloy-d/goauth"
+	"mime"
 )
 
 type twitterError struct {
@@ -49,7 +50,10 @@ func Retweet(id uint64, o *oauth.OAuth) error {
 	}
 	if response.StatusCode != 200 {
 		var extra twitterError
-		if response.Header.Get("Content-Type") == "application/json; charset=utf-8" {
+
+		mediatype, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+
+		if err == nil && mediatype == "application/json" {
 			dec := json.NewDecoder(response.Body)
 			_ = dec.Decode(&extra)
 		}
