@@ -31,8 +31,20 @@ func ErrIsPermanent(err error) bool {
 	if !ok {
 		return false
 	}
-	return err2.StatusCode == 403 &&
-		err2.Message == "sharing is not permissible for this status (Share validations failed)"
+	switch err2.StatusCode {
+	case 404:
+		// tweet was deleted
+		return true
+	case 403:
+		switch err2.Message {
+		case "sharing is not permissible for this status (Share validations failed)":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 func Retweet(id uint64, o *oauth.OAuth) error {
