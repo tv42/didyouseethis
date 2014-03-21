@@ -1,17 +1,18 @@
 package main
 
 import (
-	"code.google.com/p/go.exp/inotify"
 	"flag"
 	"fmt"
-	"github.com/alloy-d/goauth"
-	"github.com/tv42/didyouseethis"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"code.google.com/p/go.exp/inotify"
+	"github.com/alloy-d/goauth"
+	"github.com/tv42/didyouseethis"
 )
 
 func usage() {

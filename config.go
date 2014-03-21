@@ -3,6 +3,7 @@ package didyouseethis
 import (
 	"errors"
 	"io/ioutil"
+
 	"launchpad.net/goyaml"
 )
 

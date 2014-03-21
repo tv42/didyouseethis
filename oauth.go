@@ -2,9 +2,10 @@ package didyouseethis
 
 import (
 	"fmt"
-	"github.com/alloy-d/goauth"
 	"os"
 	"path/filepath"
+
+	"github.com/alloy-d/goauth"
 )
 
 // Note: this function interacts with the user.

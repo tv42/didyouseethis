@@ -3,8 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/alloy-d/goauth"
 	"mime"
+
+	"github.com/alloy-d/goauth"
 )
 
 type twitterError struct {

@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/tv42/didyouseethis"
-	"github.com/tv42/didyouseethis/watchdog"
 	"log"
 	"mime"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/tv42/didyouseethis"
+	"github.com/tv42/didyouseethis/watchdog"
 )
 
 func usage() {
