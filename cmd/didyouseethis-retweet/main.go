@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strconv"
 
-	"code.google.com/p/go.exp/inotify"
 	"github.com/alloy-d/goauth"
 	"github.com/tv42/didyouseethis"
+	"golang.org/x/exp/inotify"
 )
 
 func usage() {
