@@ -4,7 +4,7 @@ import (
 	"errors"
 	"io/ioutil"
 
-	"gopkg.in/v1/yaml"
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
